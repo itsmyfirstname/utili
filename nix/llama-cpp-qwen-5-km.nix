@@ -153,10 +153,14 @@
       after = [ "network.target" ];
 
       serviceConfig = {
-        # Added '-ngl 99' to force offloading all model layers to VRAM
-        #ExecStart = "${llama-cpp-cuda}/bin/llama-server --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 32768";
-        #ExecStart = "${llama-cpp-cuda}/bin/llama-server --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 131072 --cache-type-k q4_0 --cache-type-v q4_0 -fa";
-        ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Q4_0.gguf --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 131072 --cache-type-k q4_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
+        # ── OPTION B: Maximum Precision / Red Liner (Q5_K_M Standalone) ─────────
+        # Highest output quality, ~1.4 GB VRAM headroom @ 65k ctx.
+        ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Uncensored-Q5_K_M.gguf --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 65536 --cache-type-k q8_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
+
+        # ── PREVIOUS BASELINE ──────────────────────────────────────────────────
+        # Q4_0 model, 131k ctx, q4_0 KV cache (both K and V)
+        #ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Q4_0.gguf --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 131072 --cache-type-k q4_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
+
         Restart = "always";
         RestartSec = "5s";
       };
