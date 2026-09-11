@@ -108,3 +108,4 @@ alias dot-venv-activate="source .venv/bin/activate"
 alias dot-ssh-seedbox="qssh mehays@192.168.1.148"
 alias dot-tmux="tmux new-session -A -s main"
 alias dot-ls-local-ports="sudo ss -tulpn"
+alias dot-mount-nas='sudo mount -t nfs 192.168.1.190:/mnt/atlas/video ~/nas/'
