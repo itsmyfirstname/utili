@@ -97,7 +97,39 @@
   #  vim # Do not forget to add an editor to edit configuration.nix! The Nano editor is also installed by default.
   #  wget
     uv
+    cifs-utils # Required for mounting SMB/CIFS shares
   ];
+
+  # ── SMB / CIFS NETWORK STORAGE CONFIGURATION ─────────────────────────────
+  # Mounts NAS models share to /mnt/models on-demand.
+  # (Leaves local /var/lib/models intact)
+  #
+  # Create the secrets file on the host before mounting:
+  #   sudo touch /etc/nixos/smb-secrets
+  #   sudo chmod 600 /etc/nixos/smb-secrets
+  #
+  # Example /etc/nixos/smb-secrets content:
+  #   username=mehays
+  #   password=your_smb_password
+  #
+  fileSystems."/mnt/models" = {
+    device = "//192.168.1.190/models";
+    fsType = "cifs";
+    options = let
+      # Stable network mount: permanent connection, keepalive pings every 60s
+      automount_opts = "x-systemd.automount,noauto,x-systemd.device-timeout=10s,x-systemd.mount-timeout=10s";
+    in [
+      "${automount_opts}"
+      "credentials=/etc/nixos/smb-secrets"
+      "vers=3.0"
+      "echo_interval=60" # Send SMB keepalive echo every 60 seconds
+      "uid=1000"
+      "gid=100"
+      "file_mode=0775"
+      "dir_mode=0775"
+      "nofail"
+    ];
+  };
 
   # Some programs need SUID wrappers, can be configured further or are
   # started in user sessions.
@@ -150,17 +182,13 @@
     in {
       description = "llama.cpp server instance";
       wantedBy = [ "multi-user.target" ];
-      after = [ "network.target" ];
+      wants = [ "network-online.target" ];
+      after = [ "network-online.target" "mnt-models.mount" ];
 
       serviceConfig = {
-        # ── OPTION A: High Throughput & Fast Thinking (Q4_K_M + Dedicated Draft) ───
-        # Faster TPS, accelerated reasoning tokens, ~3.4 GB VRAM headroom @ 65k ctx.
-        # (can grow context to 96k)
-        ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Uncensored-Q4_K_M.gguf --draft-model /var/lib/models/Qwen3.8-27B-Uncensored-draft-Q4_0.gguf --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -ngld 99 -c 65536 --cache-type-k q8_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
-
-        # ── PREVIOUS BASELINE ──────────────────────────────────────────────────
-        # Q4_0 model, 131k ctx, q4_0 KV cache (both K and V)
-        #ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Q4_0.gguf --models-dir /var/lib/models --no-models-autoload --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 131072 --cache-type-k q4_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
+        # ── Q4_K_M Optimized (96k Context + High-Precision q8_0/q4_0 KV Cache) ───
+        # Optimized for heavy dev work: 98,304 context, near-lossless key attention, ~21.5 GB VRAM total
+        ExecStart = "${llama-cpp-cuda}/bin/llama-server -m /var/lib/models/Qwen3.8-27B-Uncensored-Q4_K_M.gguf --models-dir /var/lib/models --no-models-autoload --no-mmap --jinja --host 0.0.0.0 --port 9000 -ngl 999 -c 196608 --cache-type-k q4_0 --cache-type-v q4_0 -fa on -b 2048 -ub 512";
 
         Restart = "always";
         RestartSec = "5s";

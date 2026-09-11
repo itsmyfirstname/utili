@@ -4,20 +4,25 @@ argument-hint: "<PR-URL>"
 ---
 Perform a **local-only** review of the pull request at: $1
 
-Hard constraints for the entire task:
+## Hard constraints
+
 - **Read-only.** Never edit, create, or delete any file. Never commit, push,
   merge, or post anything to GitHub.
-- **The gh CLI is the only tool for talking to GitHub**, and only read
+- **gh CLI** is the only tool for talking to GitHub, and only read
   subcommands are allowed: `gh pr view`, `gh pr diff`, `gh pr checks`,
   `gh run list`, `gh run view`, `gh repo view`, and `gh api <GET route>`
   (no `-X POST/PUT/PATCH/DELETE`, no `-f`/`-F` fields). Forbidden: `gh pr
   merge`, `gh pr close`, `gh pr comment`, `gh pr review`, `gh pr edit`,
   `gh pr update-branch`, `gh issue` writes, `gh release` writes, and any
-  other gh command that mutates state. No curl or web requests to
-  GitHub.
-- **Local git** is the workbench: read commands plus exactly one fetch of
-  the PR ref (step 2). Do not check out, commit, rebase, or otherwise touch
-  the user's current branch or working tree.
+  other gh command that mutates state. No curl or web requests to GitHub.
+- **Local git** is read-only: `git diff`, `git show`, `git grep`, `git log`,
+  `git cat-file`, `git status`. Never check out, create branches, commit,
+  rebase, or modify the working tree. The only exception is the
+  conditional fetch in step 2.
+- **rg/grep** search the working tree. In the common case you are checked
+  out on the PR branch, so the working tree is the head and rg/grep are
+  valid. When HEAD is not the head OID, search with
+  `git grep <pattern> <headRefOid>` instead.
 - **Output goes to the terminal only** (your reply). The report is never
   posted, commented, or saved.
 
@@ -30,25 +35,41 @@ Run `gh pr view <url> --json number,title,state,baseRefName,headRefName,headRefO
 If this fails, stop and report the error. Record: PR number, title, state,
 base branch, head OID.
 
-## Step 2 — Bring the PR head into local git (the only allowed mutation)
+## Step 2 — Pin the review to OIDs
 
-From the repository the URL points at:
+From the repository the URL points at (or with the full
+`repos/<owner>/<repo>` route), get the merge-base exactly as GitHub
+computes it:
 
 ```bash
-git fetch origin pull/<number>/head:pr-review-<number>
-git merge-base origin/<baseRefName> pr-review-<number>
+gh api repos/<owner>/<repo>/compare/<baseRefName>...<headRefName> \
+  --jq .merge_base_commit.sha
 ```
 
-Pin the review to the fetched head OID and the merge-base. Every line
-reference in the report must be valid against those two refs.
+Make sure the head OID is in the local object store. This is a no-op when
+you are checked out on the PR branch; the fetch only runs otherwise and
+stores the head as the remote-tracking ref `origin/pr-<number>/head` (no
+local branch, nothing to clean up):
 
-## Step 3 — Review the diff locally
+```bash
+git cat-file -e <headRefOid>^{commit} || git fetch origin pull/<number>/head
+```
 
-- `git diff <merge-base>...pr-review-<number> --stat`, then per-file diffs.
-- Read whole files where a hunk needs surrounding context. Search freely
-  (rg/grep) across the repo at the PR head.
-- You may run the project's existing test suite or type checker to confirm a
-  suspected finding. Never modify code to test a theory.
+From here on, pin everything to the head OID and the merge-base OID. Every
+line reference in the report must be valid against the head OID.
+
+## Step 3 — Review the diff
+
+- `git diff <merge-base>...<headRefOid> --stat`, then per-file diffs.
+- Read whole files where a hunk needs surrounding context:
+  `git show <headRefOid>:<path>`. For the pre-PR version of a file, use
+  the merge-base the same way.
+- Search the head with `git grep <pattern> <headRefOid>`; rg/grep on the
+  working tree is fine when HEAD == headRefOid.
+- You may run the project's existing test suite or type checker in the
+  working tree to confirm a suspected finding, but only when HEAD ==
+  headRefOid, so it is actually testing the head. Never modify tracked
+  files to test a theory.
 
 Hunt, in this order:
 1. **Security** — authn/authz gaps, injection, secrets in code or logs,
@@ -98,7 +119,6 @@ VERDICT: <"No critical or high findings." | "N finding(s): X critical, Y high.">
 - Fix: <one line>
 ```
 
-Repeat the finding block for each finding. If there are none, write "None."
-under Findings. End with one line of cleanup note: the local ref
-`pr-review-<number>` can be deleted with
-`git branch -D pr-review-<number>` when the user is done with it.
+Repeat the finding block above for each finding. If there are none, write
+"None." under Findings. Print the finished report to the terminal as your
+reply — save nothing, post nothing.
